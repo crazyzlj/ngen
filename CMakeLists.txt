@@ -140,7 +140,7 @@ if(UDUNITS_ACTIVE)
             SOURCE_DIR ${UDUNITS_DIR}
             BINARY_DIR ${UDUNITS_BUILD_DIR}
             INSTALL_DIR ${UDUNITS_INSTALL_DIR}
-            PATCH_COMMAND find ${PROJECT_SOURCE_DIR}/extern/UDUNITS-2  \( -type d -name .git -prune \) -o -type f -name "CMakeLists.txt" -exec sed -i -e "s/CMAKE_MINIMUM_REQUIRED(VERSION 3\.19)/CMAKE_MINIMUM_REQUIRED(VERSION 3.17)/" {} +
+            PATCH_COMMAND find ${PROJECT_SOURCE_DIR}/extern/UDUNITS-2  \( -type d -name .git -prune \) -o -type f -name "CMakeLists.txt" -exec sed -i -e "s/CMAKE_MINIMUM_REQUIRED(VERSION 3.19)/CMAKE_MINIMUM_REQUIRED(VERSION 3.17)/" {} +
             #CMAKE_ARGS -DBOOST_ROOT=${BOOST_ROOT} CMAKE_INSTALL_RPATH_USE_LINK_PATH="ON" -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
             CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${UDUNITS_INSTALL_DIR}
         )
@@ -191,7 +191,7 @@ if(BMI_C_LIB_ACTIVE)
 endif()
 
 # Configure whether Fortran BMI functionality is active
-if (${BMI_FORTRAN_ACTIVE})
+if (BMI_FORTRAN_ACTIVE)
     add_compile_definitions(NGEN_BMI_FORTRAN_ACTIVE)
 endif()
 
