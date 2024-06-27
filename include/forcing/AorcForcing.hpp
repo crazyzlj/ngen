@@ -14,9 +14,19 @@
 #define CSDMS_STD_NAME_WIND_V_Y "land_surface_wind__y_component_of_velocity"
 #define NGEN_STD_NAME_SPECIFIC_HUMIDITY "atmosphere_air_water~vapor__relative_saturation" // This is not present in standard names, use this for now... may change!
 
-#include <map>
+// Recognized Forcing Value Names (in particular for use when configuring BMI input variables)
+// TODO: perhaps create way to configure a mapping of these to something different
+#define AORC_FIELD_NAME_PRECIP_RATE "precip_rate"
+#define AORC_FIELD_NAME_SOLAR_SHORTWAVE "DSWRF_surface"
+#define AORC_FIELD_NAME_SOLAR_LONGWAVE "DLWRF_surface"
+#define AORC_FIELD_NAME_PRESSURE_SURFACE "PRES_surface"
+#define AORC_FIELD_NAME_TEMP_2M_AG "TMP_2maboveground"
+#define AORC_FIELD_NAME_APCP_SURFACE "APCP_surface"
+#define AORC_FIELD_NAME_WIND_U_10M_AG "UGRD_10maboveground"
+#define AORC_FIELD_NAME_WIND_V_10M_AG "VGRD_10maboveground"
+#define AORC_FIELD_NAME_SPEC_HUMID_2M_AG "SPFH_2maboveground"
 
-using namespace std;
+#include <map>
 
 /**
  * @brief forcing_params providing configuration information for forcing time period and source.
@@ -28,8 +38,8 @@ struct forcing_params
   std::string end_time;
   std::string date_format =  "%Y-%m-%d %H:%M:%S";
   std::string provider;
-  time_t start_t;
-  time_t end_t;
+  time_t simulation_start_t;
+  time_t simulation_end_t;
   /*
     Constructor for forcing_params
   */
@@ -42,10 +52,10 @@ struct forcing_params
       strptime(this->start_time.c_str(), this->date_format.c_str() , &tm);
       //mktime returns time in local time based on system timezone
       //FIXME use timegm (not standard)? or implement timegm (see above link)
-      this->start_t = timegm( &tm );
+      this->simulation_start_t = timegm( &tm );
 
       strptime(this->end_time.c_str(), this->date_format.c_str() , &tm);
-      this->end_t = timegm( &tm );
+      this->simulation_end_t = timegm( &tm );
     }
 };
 

@@ -97,6 +97,11 @@ CMakeCache.txt
 /cmake-build-debug
 /cmake_build
 /build*
+/cmake_build*
+compile_commands.json
+
+# Prevent ignoring cmake modules
+!cmake/**/*.cmake
 
 # Static Headers
 include/bmi.hpp

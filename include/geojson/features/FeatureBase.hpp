@@ -76,7 +76,7 @@ namespace geojson {
                 std::vector<FeatureBase*> destination_features = std::vector<FeatureBase*>(),
                 PropertyMap members = PropertyMap()
             ) {
-                id = new_id;
+                id = std::move(new_id);
 
                 for (auto& feature : origination_features) {
                     this->add_origination_feature(feature);
@@ -86,9 +86,9 @@ namespace geojson {
                     this->add_destination_feature(feature);
                 }
                 
-                foreign_members = members;
-                bounding_box = new_bounding_box;
-                properties = new_properties;
+                foreign_members = std::move(members);
+                bounding_box = std::move(new_bounding_box);
+                properties = std::move(new_properties);
             }
 
         public:
@@ -209,7 +209,7 @@ namespace geojson {
              * @param key The name of the property to get
              * @return The property identified by the key
              */
-            virtual JSONProperty get_property(std::string key) const {
+            virtual JSONProperty get_property(const std::string& key) const {
                 if (properties.find(key) == properties.end()) {
                     std::string error_message = "JSON Property '" + key + "' not found."; 
                     throw std::invalid_argument(error_message);
@@ -223,7 +223,7 @@ namespace geojson {
              * 
              * @param new_id The new identifier for this feature
              */
-            virtual void set_id(std::string new_id) {
+            virtual void set_id(const std::string& new_id) {
                 id = new_id;
             }
 
@@ -233,7 +233,7 @@ namespace geojson {
              * @param key The name of the foreign member whose value to look for
              * @return The member value identified by the key
              */
-            virtual JSONProperty get(std::string key) const {
+            virtual JSONProperty get(const std::string& key) const {
                 return foreign_members.at(key);
             }
 
@@ -243,7 +243,7 @@ namespace geojson {
              * @param key The name of the value to set
              * @param value The value to set
              */
-            virtual void set(std::string key, short value) {
+            virtual void set(const std::string& key, short value) {
                 foreign_members.emplace(key, JSONProperty(key, value));
             }
 
@@ -253,7 +253,7 @@ namespace geojson {
              * @param key The name of the value to set
              * @param value The value to set
              */
-            virtual void set(std::string key, int value) {
+            virtual void set(const std::string& key, int value) {
                 foreign_members.emplace(key, JSONProperty(key, value));
             }
 
@@ -263,7 +263,7 @@ namespace geojson {
              * @param key The name of the value to set
              * @param value The value to set
              */
-            virtual void set(std::string key, long value) {
+            virtual void set(const std::string& key, long value) {
                 foreign_members.emplace(key, JSONProperty(key, value));
             }
 
@@ -273,7 +273,7 @@ namespace geojson {
              * @param key The name of the value to set
              * @param value The value to set
              */
-            virtual void set(std::string key, float value) {
+            virtual void set(const std::string& key, float value) {
                 foreign_members.emplace(key, JSONProperty(key, value));
             }
 
@@ -283,7 +283,7 @@ namespace geojson {
              * @param key The name of the value to set
              * @param value The value to set
              */
-            virtual void set(std::string key, double value) {
+            virtual void set(const std::string& key, double value) {
                 foreign_members.emplace(key, JSONProperty(key, value));
             }
 
@@ -293,7 +293,7 @@ namespace geojson {
              * @param key The name of the value to set
              * @param value The value to set
              */
-            virtual void set(std::string key, std::string value) {
+            virtual void set(const std::string& key, std::string value) {
                 foreign_members.emplace(key, JSONProperty(key, value));
             }
 
@@ -303,11 +303,11 @@ namespace geojson {
              * @param key The name of the value to set
              * @param value The value to set
              */
-            virtual void set(std::string key, JSONProperty property) {
+            virtual void set(const std::string& key, JSONProperty property) {
                 foreign_members.emplace(key, property);
             }
 
-            virtual bool has_key(std::string key) {
+            virtual bool has_key(const std::string& key) {
                 std::vector<std::string> all_keys = this->keys();
 
                 for(auto member_key : all_keys) {
@@ -384,12 +384,29 @@ namespace geojson {
                 return bounding_box;
             }
 
-            PropertyMap get_properties() const {
+            const PropertyMap& get_properties() const {
+                return properties;
+            }
+
+            PropertyMap& get_properties() {
                 return properties;
             }
 
             std::string get_id() const {
                 return id;
+            }
+
+            std::string get_id(std::string alt_id) const {
+                std::string tmp = id;
+                try{
+                    tmp = get_property(alt_id).as_string();
+                    //if the property exists, but its value is NaN/null
+                    if(tmp == "null") tmp = id;
+                }
+                catch(...){
+                    tmp = id;
+                }
+                return tmp;
             }
 
             int get_number_of_destination_features() {
@@ -510,7 +527,7 @@ namespace geojson {
                 try {
                     return boost::get<T>(this->geom);
                 }
-                catch (boost::bad_get exception) {
+                catch (boost::bad_get &exception) {
                     std::string template_name = boost::typeindex::type_id<T>().pretty_name();
                     std::string expected_name = get_geometry_type(this->geom);
                     std::cerr << "Asked for " << template_name << ", but only " << expected_name << " is valid" << std::endl;
@@ -527,7 +544,7 @@ namespace geojson {
                 try {
                     return boost::get<T>(this->geometry_collection[index]);
                 }
-                catch (boost::bad_get exception) {
+                catch (boost::bad_get &exception) {
                     std::string template_name = boost::typeindex::type_id<T>().pretty_name();
                     std::string expected_name = get_geometry_type(this->geometry_collection[index]);
                     std::cerr << "Asked for " << template_name << ", but only " << expected_name << " is valid" << std::endl;

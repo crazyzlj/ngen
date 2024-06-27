@@ -31,9 +31,9 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
     typedef struct tm time_type;
 
 
-    CsvPerFeatureForcingProvider(forcing_params forcing_config):start_date_time_epoch(forcing_config.start_t),
-                                           end_date_time_epoch(forcing_config.end_t),
-                                           current_date_time_epoch(forcing_config.start_t),
+    CsvPerFeatureForcingProvider(forcing_params forcing_config):start_date_time_epoch(forcing_config.simulation_start_t),
+                                           end_date_time_epoch(forcing_config.simulation_end_t),
+                                           current_date_time_epoch(forcing_config.simulation_start_t),
                                            forcing_vector_index(-1)
     {
         read_csv(forcing_config.path);
@@ -47,6 +47,8 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
      * @return The inclusive beginning of the period of time over which this instance can provide this data.
      */
     long get_data_start_time() override {
+        //FIXME: Trace this back and you will find that it is the simulation start time, not having anything to do with the forcing at all.
+        // Apparently this "worked", but at a minimum the description above is false.
         return start_date_time_epoch;
     }
 
@@ -163,7 +165,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
         }
         catch (const std::runtime_error& e){
             #ifndef UDUNITS_QUIET
-            std::cerr<<"Unit conversion error: "<<std::endl<<e.what()<<std::endl<<"Returning unconverted value!"<<std::endl;
+            std::cerr<<"WARN: Unit conversion unsuccessful - Returning unconverted value! (\""<<e.what()<<"\")"<<std::endl;
             #endif
             return value;
         }
@@ -220,7 +222,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
         return is_param_sum_over_time_step(name);
     }
 
-    const std::vector<std::string> &get_avaliable_variable_names() override {
+    boost::span<const std::string> get_available_variable_names() override {
         return available_forcings;
     }
 
@@ -237,7 +239,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
         {
             forcing_vector_index = 0;
             /// \todo: Return appropriate warning
-            cout << "WARNING: Forcing vector index is less than zero. Therefore, setting index to zero." << endl;
+            std::cout << "WARNING: Forcing vector index is less than zero. Therefore, setting index to zero." << std::endl;
         }
 
         //Check if forcing index is greater than or equal to the size of the size of the time vector and if so, set to zero.
@@ -245,7 +247,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
         {
             forcing_vector_index = time_epoch_vector.size() - 1;
             /// \todo: Return appropriate warning
-            cout << "WARNING: Reached beyond the size of the forcing vector. Therefore, setting index to last value of the vector." << endl;
+            std::cout << "WARNING: Reached beyond the size of the forcing vector. Therefore, setting index to last value of the vector." << std::endl;
         }
 
         return;
@@ -282,7 +284,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
      * Reads only data within the specified model start and end date-times.
      * @param file_name Forcing file name
      */
-    void read_csv(string file_name)
+    void read_csv(std::string file_name)
     {
         int time_col_index = 0;
         //std::map<std::string, int> col_indices;
@@ -305,7 +307,23 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
                 std::string var_name = col_head;
                 std::string units = "";
 
-                //TODO: parse units in parens and/or square brackets?
+                boost::trim(var_name); // remove leading/trailing ws
+                const auto var_name_close = var_name.back();
+                if (var_name_close == ']' || var_name_close == ')') {
+                    // found closing bracket/parenth
+
+                    const bool is_bracket = var_name_close == ']';
+                    const size_t var_name_open = is_bracket ? var_name.rfind('[') : var_name.rfind('(');
+                    if (var_name_open != std::string::npos) {
+                        // found matching opening bracket/parenth
+
+                        units = var_name.substr(var_name_open + 1);
+                        units.pop_back(); // remove closing bracket
+
+                        var_name = var_name.substr(0, var_name_open);
+                        boost::trim(var_name); // trim again in case of ws between name and units
+                    }
+                }
 
                 auto wkf = data_access::WellKnownFields.find(var_name);
                 if(wkf != data_access::WellKnownFields.end()){
@@ -332,7 +350,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
             std::vector<std::string>& vec = data_list[i];
 
             struct tm current_row_date_time_utc = tm();
-            string time_str = vec[time_col_index];
+            std::string time_str = vec[time_col_index];
             //TODO: Support more time string formats? This is basically ISO8601 but not complete, support TZ?
             strptime(time_str.c_str(), "%Y-%m-%d %H:%M:%S", &current_row_date_time_utc);
 
@@ -372,7 +390,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
         if (i <= 1 || current_row_date_time_epoch < end_date_time_epoch)
         {
             /// \todo TODO: Return appropriate error
-            cout << "WARNING: Forcing data ends before the model end time." << endl;
+            std::cout << "WARNING: Forcing data ends before the model end time." << std::endl;
             //throw std::runtime_error("Error: Forcing data ends before the model end time.");
         }
     }
@@ -384,7 +402,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
     std::unordered_map<std::string, std::vector<double>> forcing_vectors;
 
     /// \todo: Consider making epoch time the iterator
-    vector<time_t> time_epoch_vector;     
+    std::vector<time_t> time_epoch_vector;     
     int forcing_vector_index;
 
     /// \todo: Are these used?
@@ -395,10 +413,7 @@ class CsvPerFeatureForcingProvider : public data_access::GenericDataProvider
     double longitude; //longitude (degrees_east)
     int catchment_id;
     int day_of_year;
-    string forcing_file_name;
-
-    std::shared_ptr<time_type> start_date_time;
-    std::shared_ptr<time_type> end_date_time;
+    std::string forcing_file_name;
 
     time_t start_date_time_epoch;
     time_t end_date_time_epoch;

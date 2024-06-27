@@ -1,39 +1,43 @@
-cmake_minimum_required(VERSION 3.10)
-enable_language( Fortran )
+cmake_minimum_required(VERSION 3.12...3.26)
 
-project(testbmifortranmodel VERSION 1.0.0 DESCRIPTION "BMI Fortran Testing Model Shared Library")
-add_subdirectory(../iso_c_fortran_bmi ${CMAKE_BINARY_DIR}/iso_c_bmi)
-#Get the iso_c_fortran binding module to build as part of this build
-#add_subdirectory(../iso_c_fortran_bmi ${CMAKE_BINARY_DIR}/iso_c_bmi)
+project(testbmifortranmodel
+    VERSION 1.0.0
+    DESCRIPTION "BMI Fortran Testing Model Shared Library"
+    LANGUAGES Fortran)
 
-# Uncomment this and rebuild artifacts to enable debugging
-set(CMAKE_BUILD_TYPE Debug)
-set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -g -fbacktrace -fbounds-check -Wall")
+add_library(testbmifortranmodel SHARED)
+file(GLOB _TESTBMIFORTRAN_OBJECTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/*.f90")
+get_target_property(_TESTBMIFORTRAN_BINARY_DIR testbmifortranmodel BINARY_DIR)
+set_target_properties(testbmifortranmodel
+    PROPERTIES
+        Fortran_MODULE_DIRECTORY "${_TESTBMIFORTRAN_BINARY_DIR}/mod")
 
-set( CMAKE_Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fortran)
+target_sources(testbmifortranmodel PRIVATE ${_TESTBMIFORTRAN_OBJECTS})
+target_compile_options(testbmifortranmodel PRIVATE -cpp -ffree-line-length-none)
+target_compile_definitions(testbmifortranmodel PRIVATE NGEN_ACTIVE)
+target_include_directories(testbmifortranmodel INTERFACE "${_TESTBMIFORTRAN_BINARY_DIR}/mod")
 
-file(GLOB SOURCES src/*.f90)
+if(NGEN_IS_MAIN_PROJECT)
 
-if(WIN32)
-    add_library(testbmifortranmodel ${SOURCES})
-else()
-    add_library(testbmifortranmodel SHARED ${SOURCES} )
+    # This ensures we can build testbmifortranmodel with NGen support, but
+    # separate from NGen.
+    if(NOT TARGET iso_c_bmi)
+        add_subdirectory(
+            "${CMAKE_CURRENT_LIST_DIR}/../iso_c_fortran_bmi"
+            "${CMAKE_CURRENT_BINARY_DIR}/iso_c_fortran_bmi"
+        )
+    endif()
+
+    target_link_libraries(testbmifortranmodel PUBLIC iso_c_bmi)
 endif()
 
-target_link_libraries(testbmifortranmodel PUBLIC iso_c_bmi)
-target_compile_options(testbmifortranmodel PUBLIC -cpp -DNGEN_ACTIVE)
-#target_include_directories(testbmifortranmodel PRIVATE include)
-
-set_target_properties(testbmifortranmodel PROPERTIES VERSION ${PROJECT_VERSION})
-
-#set_target_properties(testbmifortranmodel PROPERTIES PUBLIC_HEADER include/bmi_test_bmi_c.h)
+unset(_TESTBMIFORTRAN_BINARY_DIR)
+unset(_TESTBMIFORTRAN_OBJECTS)
 
 include(GNUInstallDirs)
-
 install(TARGETS testbmifortranmodel
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
 configure_file(testbmifortranmodel.pc.in testbmifortranmodel.pc @ONLY)
-
-install(FILES ${CMAKE_BINARY_DIR}/testbmifortranmodel.pc DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pkgconfig)
+install(FILES ${CMAKE_BINARY_DIR}/testbmifortranmodel.pc
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pkgconfig)

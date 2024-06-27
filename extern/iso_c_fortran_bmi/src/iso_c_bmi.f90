@@ -11,7 +11,7 @@
 
 module iso_c_bmif_2_0
   use bmif_2_0_iso
-  use, intrinsic :: iso_c_binding, only: c_ptr, c_loc, c_f_pointer, c_char, c_null_char, c_int, c_double, c_float
+  use, intrinsic :: iso_c_binding, only: c_ptr, c_loc, c_f_pointer, c_char, c_null_char, c_int, c_double, c_float, c_null_ptr
   implicit none
 
   type box
@@ -392,8 +392,19 @@ module iso_c_bmif_2_0
       call c_f_pointer(this, bmi_box)
 
       f_str = c_to_f_string(name)
-      bmi_status = bmi_box%ptr%get_var_grid(f_str, grid)
-      bmi_status = bmi_box%ptr%get_grid_size(grid, num_items)
+      ! Use variable metadata to determine the size of the array required to
+      ! hold the variable.
+      bmi_status = bmi_box%ptr%get_var_nbytes(f_str, num_bytes)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      bmi_status = bmi_box%ptr%get_var_itemsize(f_str, item_size)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      if( item_size .eq. 0 ) then
+        ! cannot get a value no size, fail
+        ! also prevents divide by 0 below
+        bmi_status = BMI_FAILURE
+        return
+      endif
+      num_items = num_bytes/item_size
       bmi_status = bmi_box%ptr%get_value_int(f_str, dest(:num_items))
       deallocate(f_str)
     end function get_value_int
@@ -413,8 +424,19 @@ module iso_c_bmif_2_0
       call c_f_pointer(this, bmi_box)
       
       f_str = c_to_f_string(name)
-      bmi_status = bmi_box%ptr%get_var_grid(f_str, grid)
-      bmi_status = bmi_box%ptr%get_grid_size(grid, num_items)
+      ! Use variable metadata to determine the size of the array required to
+      ! hold the variable.
+      bmi_status = bmi_box%ptr%get_var_nbytes(f_str, num_bytes)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      bmi_status = bmi_box%ptr%get_var_itemsize(f_str, item_size)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      if( item_size .eq. 0 ) then
+        ! cannot get a value no size, fail
+        ! also prevents divide by 0 below
+        bmi_status = BMI_FAILURE
+        return
+      endif
+      num_items = num_bytes/item_size
       bmi_status = bmi_box%ptr%get_value_float(f_str, dest(:num_items))
       deallocate(f_str)
     end function get_value_float
@@ -428,17 +450,94 @@ module iso_c_bmif_2_0
             !use a wrapper for c interop
       type(box), pointer :: bmi_box
       !for determining the number of items to get
-      integer :: item_size, num_bytes, num_items, grid
+      integer :: item_size, num_bytes, num_items
       character(kind=c_char, len=:), allocatable :: f_str
       !extract the fortran type from handle
       call c_f_pointer(this, bmi_box)
   
       f_str = c_to_f_string(name)
-      bmi_status = bmi_box%ptr%get_var_grid(f_str, grid)
-      bmi_status = bmi_box%ptr%get_grid_size(grid, num_items)
+      ! Use variable metadata to determine the size of the array required to
+      ! hold the variable.
+      bmi_status = bmi_box%ptr%get_var_nbytes(f_str, num_bytes)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      bmi_status = bmi_box%ptr%get_var_itemsize(f_str, item_size)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      num_items = num_bytes/item_size
+      if( item_size .eq. 0 ) then
+        ! cannot get a value no size, fail
+        ! also prevents divide by 0 below
+        bmi_status = BMI_FAILURE
+        return
+      endif
       bmi_status = bmi_box%ptr%get_value_double(f_str, dest(:num_items))
       deallocate(f_str)
     end function get_value_double
+
+    ! Get a reference to the given integer variable.
+    function get_value_ptr_int(this, name, dest_ptr) result(bmi_status) bind(C, name="get_value_ptr_int")
+      type(c_ptr) :: this
+      type(c_ptr) :: dest_ptr
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      integer(kind=c_int) :: bmi_status
+
+      dest_ptr = c_null_ptr
+      bmi_status = BMI_FAILURE
+    end function get_value_ptr_int
+
+    ! Get a reference to the given float variable.
+    function get_value_ptr_float(this, name, dest_ptr) result(bmi_status) bind(C, name="get_value_ptr_float")
+      type(c_ptr) :: this
+      type(c_ptr) :: dest_ptr
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      integer(kind=c_int) :: bmi_status
+
+      dest_ptr = c_null_ptr
+      bmi_status = BMI_FAILURE
+    end function get_value_ptr_float
+
+    ! Get a reference to the given double variable.
+    function get_value_ptr_double(this, name, dest_ptr) result(bmi_status) bind(C, name="get_value_ptr_double")
+      type(c_ptr) :: this
+      type(c_ptr) :: dest_ptr
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      integer(kind=c_int) :: bmi_status
+
+      dest_ptr = c_null_ptr
+      bmi_status = BMI_FAILURE
+    end function get_value_ptr_double
+
+    ! Get integer values at particular (one-dimensional) indices.
+    function get_value_at_indices_int(this, name, dest, inds) result(bmi_status) bind(C, name="get_value_at_indices_int")
+      type(c_ptr) :: this
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      integer(kind=c_int), intent(inout) :: dest(*)
+      integer(kind=c_int), intent(in) :: inds(*)
+      integer(kind=c_int) :: bmi_status
+
+      bmi_status = BMI_FAILURE
+    end function get_value_at_indices_int
+
+    ! Get real values at particular (one-dimensional) indices.
+    function get_value_at_indices_float(this, name, dest, inds) result(bmi_status) bind(C, name="get_value_at_indices_float")
+      type(c_ptr) :: this
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      real(kind=c_float), intent(inout) :: dest(*)
+      integer(kind=c_int), intent(in) :: inds(*)
+      integer(kind=c_int) :: bmi_status
+
+      bmi_status = BMI_FAILURE
+    end function get_value_at_indices_float
+
+    ! Get real values at particular (one-dimensional) indices.
+    function get_value_at_indices_double(this, name, dest, inds) result(bmi_status) bind(C, name="get_value_at_indices_double")
+      type(c_ptr) :: this
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      real(kind=c_double), intent(inout) :: dest(*)
+      integer(kind=c_int), intent(in) :: inds(*)
+      integer(kind=c_int) :: bmi_status
+
+      bmi_status = BMI_FAILURE
+    end function get_value_at_indices_double
 
     ! Set new values for an integer model variable.
     function set_value_int(this, name, src) result(bmi_status) bind(C, name="set_value_int")
@@ -449,14 +548,26 @@ module iso_c_bmif_2_0
       !use a wrapper for c interop
       type(box), pointer :: bmi_box
       !for determining the number of items to set
-      integer :: item_size, num_bytes, num_items, grid
+      integer :: item_size, num_bytes, num_items
       character(kind=c_char, len=:), allocatable :: f_str
       !extract the fortran type from handle
       call c_f_pointer(this, bmi_box)
   
       f_str = c_to_f_string(name)
-      bmi_status = bmi_box%ptr%get_var_grid(f_str, grid)
-      bmi_status = bmi_box%ptr%get_grid_size(grid, num_items)
+      ! Use variable metadata to determine the size of the array required to
+      ! hold the variable.
+      bmi_status = bmi_box%ptr%get_var_nbytes(f_str, num_bytes)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      bmi_status = bmi_box%ptr%get_var_itemsize(f_str, item_size)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      if( item_size .eq. 0 ) then
+        ! we can attempt to set a value of 0 size
+        ! but we need to avoid divide by 0
+        num_items = 0
+      else 
+        num_items = num_bytes/item_size
+      endif
+      !write(0,*) "set_value_int, grid_size: ", num_items
       bmi_status = bmi_box%ptr%set_value_int(f_str, src(:num_items))
       deallocate(f_str)
     end function set_value_int
@@ -470,15 +581,26 @@ module iso_c_bmif_2_0
       !use a wrapper for c interop
       type(box), pointer :: bmi_box
       !for determining the number of items to set
-      integer :: item_size, num_bytes, num_items, grid
+      integer :: item_size, num_bytes, num_items
       character(kind=c_char, len=:), allocatable :: f_str
       !extract the fortran type from handle
       call c_f_pointer(this, bmi_box)
       !FIXME try both paths, nbytes/itemsize and grid info in cause some model doesn't implement
       !one one or the other????
       f_str = c_to_f_string(name)
-      bmi_status = bmi_box%ptr%get_var_grid(f_str, grid)
-      bmi_status = bmi_box%ptr%get_grid_size(grid, num_items)
+      ! Use variable metadata to determine the size of the array required to
+      ! hold the variable.
+      bmi_status = bmi_box%ptr%get_var_nbytes(f_str, num_bytes)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      bmi_status = bmi_box%ptr%get_var_itemsize(f_str, item_size)
+      if( bmi_status .ne. BMI_SUCCESS ) return
+      if( item_size .eq. 0 ) then
+        ! we can attempt to set a value of 0 size
+        ! but we need to avoid divide by 0
+        num_items = 0
+      else 
+        num_items = num_bytes/item_size
+      endif
       bmi_status = bmi_box%ptr%set_value_float(f_str, src(:num_items))
       deallocate(f_str)
     end function set_value_float
@@ -492,18 +614,70 @@ module iso_c_bmif_2_0
       !use a wrapper for c interop
       type(box), pointer :: bmi_box
       !for determining the number of items to set
-      integer :: item_size, num_bytes, num_items, grid
+      integer :: item_size, num_bytes, num_items
       character(kind=c_char, len=:), allocatable :: f_str
 
       !extract the fortran type from handle
       call c_f_pointer(this, bmi_box)
   
       f_str = c_to_f_string(name)
-      bmi_status = bmi_box%ptr%get_var_grid(f_str, grid)
-      bmi_status = bmi_box%ptr%get_grid_size(grid, num_items)
+      ! Use variable metadata to determine the size of the array required to
+      ! hold the variable.
+      bmi_status = bmi_box%ptr%get_var_nbytes(f_str, num_bytes)
+      if( bmi_status .ne. BMI_SUCCESS ) then
+        ! TODO make this write unit configurable???
+        write(0,*) "Failed to get var nbytes: ", f_str
+        return
+      end if
+      bmi_status = bmi_box%ptr%get_var_itemsize(f_str, item_size)
+      if( bmi_status .ne. BMI_SUCCESS ) then
+        ! TODO make this write unit configurable???
+        write(0,*) "Failed to get var itemsize: ", f_str
+        return
+      end if
+      if( item_size .eq. 0 ) then
+        ! we can attempt to set a value of 0 size
+        ! but we need to avoid divide by 0
+        num_items = 0
+      else 
+        num_items = num_bytes/item_size
+      endif
       bmi_status = bmi_box%ptr%set_value_double(f_str, src(:num_items))
       deallocate(f_str)
     end function set_value_double
+
+    ! Set integer values at particular (one-dimensional) indices.
+    function set_value_at_indices_int(this, name, inds, src) result(bmi_status) bind(C, name="set_value_at_indices_int")
+      type(c_ptr) :: this
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      integer(kind=c_int), intent(in) :: inds(*)
+      integer(kind=c_int), intent(in) :: src(*)
+      integer(kind=c_int) :: bmi_status
+
+      bmi_status = BMI_FAILURE
+    end function set_value_at_indices_int
+
+    ! Set real values at particular (one-dimensional) indices.
+    function set_value_at_indices_float(this, name, inds, src) result(bmi_status) bind(C, name="set_value_at_indices_float")
+      type(c_ptr) :: this
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      integer(kind=c_int), intent(in) :: inds(*)
+      real(kind=c_float), intent(in) :: src(*)
+      integer(kind=c_int) :: bmi_status
+
+      bmi_status = BMI_FAILURE
+    end function set_value_at_indices_float
+
+    ! Set double values at particular (one-dimensional) indices.
+    function set_value_at_indices_double(this, name, inds, src) result(bmi_status) bind(C, name="set_value_at_indices_double")
+      type(c_ptr) :: this
+      character(kind=c_char, len=1), dimension(BMI_MAX_COMPONENT_NAME), intent(in) :: name
+      integer(kind=c_int), intent(in) :: inds(*)
+      real(kind=c_double), intent(in) :: src(*)
+      integer(kind=c_int) :: bmi_status
+
+      bmi_status = BMI_FAILURE
+    end function set_value_at_indices_double
 
     ! Get number of dimensions of the computational grid.
     function get_grid_rank(this, grid, rank) result(bmi_status) bind(C, name="get_grid_rank")
@@ -617,13 +791,15 @@ module iso_c_bmif_2_0
       type(c_ptr) :: this
       integer(kind=c_int), intent(in) :: grid
       real(kind=c_double), intent(out) :: x (*)
-      integer(kind=c_int) :: bmi_status
+      integer(kind=c_int) :: bmi_status, rank
       !use a wrapper for c interop
       type(box), pointer :: bmi_box
       integer :: num_nodes
       !extract the fortran type from handle
       call c_f_pointer(this, bmi_box)
       bmi_status = bmi_box%ptr%get_grid_size(grid, num_nodes)
+      bmi_status = bmi_box%ptr%get_grid_rank(grid, rank)
+      if( rank .eq. 0 ) num_nodes = 1 ! treat scalars as 1 element array
       bmi_status = bmi_box%ptr%get_grid_x(grid, x(:num_nodes))
     end function get_grid_x
 
@@ -632,13 +808,15 @@ module iso_c_bmif_2_0
       type(c_ptr) :: this
       integer(kind=c_int), intent(in) :: grid
       real(kind=c_double), intent(out) :: y (*)
-      integer(kind=c_int) :: bmi_status
+      integer(kind=c_int) :: bmi_status, rank
       !use a wrapper for c interop
       type(box), pointer :: bmi_box
       integer :: num_nodes
       !extract the fortran type from handle
       call c_f_pointer(this, bmi_box)
       bmi_status = bmi_box%ptr%get_grid_size(grid, num_nodes)
+      bmi_status = bmi_box%ptr%get_grid_rank(grid, rank)
+      if( rank .eq. 0 ) num_nodes = 1 ! treat scalars as 1 element array
       bmi_status = bmi_box%ptr%get_grid_y(grid, y(:num_nodes))
     end function get_grid_y
 
@@ -647,13 +825,15 @@ module iso_c_bmif_2_0
       type(c_ptr) :: this
       integer(kind=c_int), intent(in) :: grid
       real(kind=c_double), intent(out) :: z (*)
-      integer(kind=c_int) :: bmi_status
+      integer(kind=c_int) :: bmi_status, rank
       !use a wrapper for c interop
       type(box), pointer :: bmi_box
       integer :: num_nodes
       !extract the fortran type from handle
       call c_f_pointer(this, bmi_box)
       bmi_status = bmi_box%ptr%get_grid_size(grid, num_nodes)
+      bmi_status = bmi_box%ptr%get_grid_rank(grid, rank)
+      if( rank .eq. 0 ) num_nodes = 1 ! treat scalars as 1 element array
       bmi_status = bmi_box%ptr%get_grid_z(grid, z(:num_nodes))
     end function get_grid_z
 

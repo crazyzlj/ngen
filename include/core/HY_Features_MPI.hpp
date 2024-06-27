@@ -1,9 +1,12 @@
 #ifndef HY_FEATURES_MPI_H
 #define HY_FEATURES_MPI_H
+
 //Only need this unit when using MPI.  It won't compile without other MPI dependent code.
-#ifdef NGEN_MPI_ACTIVE
+#include <NGenConfig.h>
+#if NGEN_WITH_MPI
 
 #include <unordered_map>
+#include <set>
 
 #include <HY_Catchment.hpp>
 #include <HY_PointHydroNexusRemote.hpp>
@@ -29,11 +32,21 @@ namespace hy_features {
             return network.filter("cat");
         }
 
-        inline bool is_remote_sender_nexus(std::string id) {
+        inline bool is_remote_sender_nexus(const std::string& id) {
             return _nexuses.find(id) != _nexuses.end() && _nexuses[id]->is_remote_sender();
         }
+        
+        inline auto catchments(long lyr) {
+            return network.filter("cat",lyr);
+        }
 
-        inline std::vector<std::shared_ptr<HY_HydroNexus>> destination_nexuses(std::string id) {
+        /**
+         * @brief Return a set of layers that contain a catchment
+         */
+
+        inline const auto& layers() { return hf_layers; }
+
+        inline std::vector<std::shared_ptr<HY_HydroNexus>> destination_nexuses(const std::string& id) {
             std::vector<std::shared_ptr<HY_HydroNexus>> downstream;
             if (_catchments.find(id) != _catchments.end()) {
                 for(const auto& nex_id : _catchments[id]->get_outflow_nexuses()) {
@@ -43,7 +56,7 @@ namespace hy_features {
             return downstream;
         }
 
-        std::shared_ptr<HY_HydroNexus> nexus_at(std::string id) {
+        std::shared_ptr<HY_HydroNexus> nexus_at(const std::string& id) {
             return (_nexuses.find(id) != _nexuses.end()) ? _nexuses[id] : nullptr;
         }
 
@@ -51,7 +64,7 @@ namespace hy_features {
             return network.filter("nex");
         }
 
-        void validate_dendridic() {
+        void validate_dendritic() {
             for(const auto& id : catchments()) {
                 auto downstream = network.get_destination_ids(id);
                 if(downstream.size() > 1) {
@@ -68,7 +81,7 @@ namespace hy_features {
                     assert( false );
                 }
             }
-            std::cout<<"Catchment topology is dendridic."<<std::endl;
+            std::cout<<"Catchment topology is dendritic."<<std::endl;
         }
 
       private:
@@ -77,10 +90,11 @@ namespace hy_features {
       std::unordered_map<std::string, std::shared_ptr<HY_PointHydroNexusRemote>> _nexuses;
       network::Network network;
       std::shared_ptr<Formulation_Manager> formulations;
+      std::set<long> hf_layers;
       int mpi_rank;
       int mpi_num_procs;
 
     };
 } 
-#endif //NGEN_MPI_ACTIVE
+#endif //NGEN_WITH_MPI
 #endif //HY_FEATURES_MPI_H

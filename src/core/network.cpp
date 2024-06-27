@@ -33,6 +33,7 @@ Network::Network( geojson::GeoJSON fabric ){
   for(auto& feature: *fabric)
   {
     feature_id = feature->get_id();
+
     if( this->descriptor_map.find( feature_id ) == this->descriptor_map.end() )
     {
       //Haven't visited this feature yet, add it to graph
@@ -43,6 +44,20 @@ Network::Network( geojson::GeoJSON fabric ){
     else{
       v1 = this->descriptor_map[ feature_id];
     }
+
+    if ( this->layer_map.find(feature_id) == this->layer_map.end() )
+    {
+      if ( feature->has_property("layer") )
+      {
+        const auto& prop = feature->get_property("layer");
+        this->layer_map.emplace( feature_id, prop.as_natural_number() );
+      }
+      else
+      {
+        this->layer_map.emplace( feature_id, DEFAULT_LAYER_ID);
+      }
+    }
+
     //Add the downstream features/edges
     for( auto& downstream: feature->destination_features() )
     {
@@ -85,7 +100,7 @@ void Network::init_indicies(){
                    boost::vertex_index_map(get(boost::vertex_index, this->graph)));
 }
 
-Network::Network( geojson::GeoJSON features, std::string* link_key = nullptr ){
+Network::Network( geojson::GeoJSON features, std::string* link_key ){
 
   std::string feature_id, downstream_id;
   Graph::vertex_descriptor v1, v2;
@@ -154,7 +169,7 @@ std::size_t Network::size(){
   return num_vertices(this->graph);
 }
 
-std::vector<std::string> Network::get_origination_ids(std::string id){
+std::vector<std::string> Network::get_origination_ids(const std::string& id){
   Graph::in_edge_iterator begin, end;
   boost::tie(begin, end) = boost::in_edges (this->descriptor_map[id], this->graph);
   std::vector<std::string> ids;
@@ -165,7 +180,7 @@ std::vector<std::string> Network::get_origination_ids(std::string id){
   return ids;
 }
 
-std::vector<std::string> Network::get_destination_ids(std::string id){
+std::vector<std::string> Network::get_destination_ids(const std::string& id){
   Graph::out_edge_iterator begin, end;
   boost::tie(begin, end) = boost::out_edges (this->descriptor_map[id], this->graph);
   std::vector<std::string> ids;

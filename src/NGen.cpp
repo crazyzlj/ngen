@@ -2,35 +2,46 @@
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <chrono>
+
+#include <boost/core/span.hpp>
 
 #include "realizations/catchment/Formulation_Manager.hpp"
 #include <Catchment_Formulation.hpp>
 #include <HY_Features.hpp>
 
+#if NGEN_WITH_SQLITE3
+#include <geopackage.hpp>
+#endif
+
 #include "NGenConfig.h"
-#include "tshirt_params.h"
 
 #include <FileChecker.h>
 #include <boost/algorithm/string.hpp>
+#include <boost/range/algorithm/sort.hpp>
 
 #ifdef WRITE_PID_FILE_FOR_GDB_SERVER
 #include <unistd.h>
 #endif // WRITE_PID_FILE_FOR_GDB_SERVER
 
-#ifdef ACTIVATE_PYTHON
+#if NGEN_WITH_PYTHON
+#include <pybind11/embed.h>
 #include "python/InterpreterUtil.hpp"
-#endif // ACTIVATE_PYTHON
+#endif // NGEN_WITH_PYTHON
     
-#ifdef NGEN_ROUTING_ACTIVE
+#if NGEN_WITH_ROUTING
 #include "routing/Routing_Py_Adapter.hpp"
-#endif // NGEN_ROUTING_ACTIVE
+#endif // NGEN_WITH_ROUTING
 
 std::string catchmentDataFile = "";
 std::string nexusDataFile = "";
 std::string REALIZATION_CONFIG_PATH = "";
 bool is_subdivided_hydrofabric_wanted = false;
 
-#ifdef NGEN_MPI_ACTIVE
+// Define in the non-MPI case so that we don't need to conditionally compile `if (mpi_rank == 0)`
+int mpi_rank = 0;
+
+#if NGEN_WITH_MPI
 
 #ifndef MPI_HF_SUB_CLI_FLAG
 #define MPI_HF_SUB_CLI_FLAG "--subdivided-hydrofabric"
@@ -41,38 +52,128 @@ bool is_subdivided_hydrofabric_wanted = false;
 #include "core/Partition_Parser.hpp"
 #include <HY_Features_MPI.hpp>
 
+#include "core/Partition_One.hpp"
+
 std::string PARTITION_PATH = "";
-int mpi_rank;
 int mpi_num_procs;
-#endif
+#endif // NGEN_WITH_MPI
+
+#include <Layer.hpp>
+#include <SurfaceLayer.hpp>
+#include <DomainLayer.hpp>
 
 std::unordered_map<std::string, std::ofstream> nexus_outfiles;
 
-//Note: Use below if developing in-memory transfer of nexus flows to routing
-//std::unordered_map<std::string, std::vector<double>> nexus_flows;
+void ngen::exec_info::runtime_summary(std::ostream& stream) noexcept
+{
+    stream << "Runtime configuration summary:\n";
 
-pdm03_struct get_et_params() {
-  // create the struct used for ET
-    pdm03_struct pdm_et_data;
-    pdm_et_data.scaled_distribution_fn_shape_parameter = 1.3;
-    pdm_et_data.vegetation_adjustment = 0.99;
-    pdm_et_data.model_time_step = 0.0;
-    pdm_et_data.max_height_soil_moisture_storerage_tank = 400.0;
-    pdm_et_data.maximum_combined_contents = pdm_et_data.max_height_soil_moisture_storerage_tank /
-                                            (1.0 + pdm_et_data.scaled_distribution_fn_shape_parameter);
-    return pdm_et_data;
-}
+#if NGEN_WITH_MPI
+    stream << "  MPI:\n"
+           << "    Rank: " << mpi_rank << "\n"
+           << "    Processors: " << mpi_num_procs << "\n";
+#endif // NGEN_WITH_MPI
+  
+#if NGEN_WITH_PYTHON // -------------------------------------------------------
+    { // START RAII
+        py::scoped_interpreter guard{};
+
+        auto sys       = py::module_::import("sys");
+        auto sysconfig = py::module_::import("sysconfig");
+
+        // try catch
+        py::module_ numpy;
+        bool imported_numpy = false;
+        std::string err;
+        try {
+            numpy = py::module_::import("numpy");
+            imported_numpy = true;
+        } catch(py::error_already_set& e) {
+            err = e.what();
+        }
+
+        // Lambda to convert py::dict -> std::unordered_map<std::string, std::string>
+        const auto dict_to_map = [](const py::dict& dict) -> std::unordered_map<std::string, std::string> {
+            std::unordered_map<std::string, std::string> map;
+            for (const auto& kv : dict)
+                map[kv.first.cast<std::string>()] = kv.second.cast<std::string>();
+
+            return map;
+        };
+
+        const auto python_paths = dict_to_map(sysconfig.attr("get_paths")().cast<py::dict>());
+        const auto python_venv = std::getenv("VIRTUAL_ENV") == nullptr ? "<none>" : std::getenv("VIRTUAL_ENV");
+      
+        stream << "  Python:\n"
+               << "    Version: "         << sys.attr("version").cast<std::string>() << "\n"
+               << "    Virtual Env: "     << python_venv                 << "\n"
+               << "    Executable: "      << sys.attr("executable").cast<std::string>() << "\n"
+               << "    Site Library: "    << python_paths.at("purelib")  << "\n"
+               << "    Include: "         << python_paths.at("include")  << "\n"
+               << "    Runtime Library: " << python_paths.at("stdlib")   << "\n";
+
+        if (imported_numpy) {
+            stream << "    NumPy Version: "   << numpy.attr("version").attr("version").cast<std::string>() << "\n"
+                   << "    NumPy Include: "   << numpy.attr("get_include")().cast<std::string>() << "\n";
+        } else {
+            // Output NumPy import error
+            stream << "    NumPy: " << err << "\n";
+        }
+               
+#if NGEN_WITH_ROUTING
+
+        // TODO: Maybe hash the package sources?
+        //
+        // In site-packages, the RECORD file for dist contains
+        // hashes generated for all files -- maybe parse this and
+        // pull a combined hash?
+
+#endif // NGEN_WITH_ROUTING
+    } // END RAII
+#endif // NGEN_WITH_PYTHON // -------------------------------------------------
+
+
+} // ngen::exec_info::runtime_summary
 
 int main(int argc, char *argv[]) {
+
+    if (argc > 1 && std::string{argv[1]} == "--info") {
+        #if NGEN_WITH_MPI
+        MPI_Init(nullptr, nullptr);
+        MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &mpi_num_procs);
+        #endif
+
+        if (mpi_rank == 0)
+        {
+            std::ostringstream output;
+            output << ngen::exec_info::build_summary;
+            ngen::exec_info::runtime_summary(output);
+            std::cout << output.str() << std::endl;
+        } // if (mpi_rank == 0)
+
+        #if NGEN_WITH_MPI
+        MPI_Finalize();
+        #endif
+
+        exit(1);
+    } 
+
+    auto time_start = std::chrono::steady_clock::now();
+
     std::cout << "NGen Framework " << ngen_VERSION_MAJOR << "."
               << ngen_VERSION_MINOR << "."
               << ngen_VERSION_PATCH << std::endl;
     std::ios::sync_with_stdio(false);
 
-    #ifdef ACTIVATE_PYTHON
+    #if NGEN_WITH_PYTHON
     // Start Python interpreter via the manager singleton
-    utils::ngenPy::InterpreterUtil::getInstance();
-    #endif // ACTIVATE_PYTHON
+    // Need to bind to a variable so that the underlying reference count
+    // is incremented, this essentially becomes the global reference to keep
+    // the interpreter alive till the end of `main`
+    auto _interp = utils::ngenPy::InterpreterUtil::getInstance();
+    //utils::ngenPy::InterpreterUtil::getInstance();
+    #endif // NGEN_WITH_PYTHON
 
     //Pull a few "options" form the cli input, this is a temporary solution to CLI parsing!
     //Use "positional args"
@@ -85,18 +186,64 @@ int main(int argc, char *argv[]) {
     //arg 7 is the partition file path
     //arg 8 is an optional flag that driver should, if not already preprocessed this way, subdivided the hydrofabric
 
-    std::vector<string> catchment_subset_ids;
-    std::vector<string> nexus_subset_ids;
+    std::vector<std::string> catchment_subset_ids;
+    std::vector<std::string> nexus_subset_ids;
 
-    if( argc < 6) {
+    if( argc < 2) {
+        // Usage
+        std::cout << "Usage: " << std::endl;
+        std::cout << argv[0] << " <catchment_data_path> <catchment subset ids> <nexus_data_path> <nexus subset ids>"
+                  << " <realization_config_path>" << std::endl
+                  << "Arguments for <catchment subset ids> and <nexus subset ids> must be given." << std::endl
+                  << "Use \"all\" as explicit argument when no subset is needed." << std::endl;
+
+        // Build and environment information
+        std::cout<<std::endl<<"Build Info:"<<std::endl;
+        std::cout<<"  NGen version: " // This is here mainly so that there will be *some* output if somehow no other options are enabled.
+          << ngen_VERSION_MAJOR << "."
+          << ngen_VERSION_MINOR << "."
+          << ngen_VERSION_PATCH << std::endl;
+        #if NGEN_WITH_MPI
+        std::cout<<"  Parallel build"<<std::endl;
+        #endif
+        #if NGEN_WITH_NETCDF
+        std::cout<<"  NetCDF lumped forcing enabled"<<std::endl;
+        #endif
+        #if NGEN_WITH_BMI_FORTRAN
+        std::cout<<"  Fortran BMI enabled"<<std::endl;
+        #endif
+        #if NGEN_WITH_BMI_C
+        std::cout<<"  C BMI enabled"<<std::endl;
+        #endif
+        #if NGEN_WITH_PYTHON
+        std::cout<<"  Python active"<<std::endl;
+        std::cout<<"    Embedded interpreter version: "<<PY_MAJOR_VERSION<<"."<<PY_MINOR_VERSION<<"."<<PY_MICRO_VERSION<<std::endl;
+        #endif
+        #if NGEN_WITH_ROUTING
+        std::cout<<"  Routing active"<<std::endl;
+        #endif
+        #if NGEN_WITH_PYTHON
+        std::cout<<std::endl<<"Python Environment Info:"<<std::endl;
+        std::cout<<"  VIRTUAL_ENV environment variable: "<<(std::getenv("VIRTUAL_ENV") == nullptr ? "(not set)" : std::getenv("VIRTUAL_ENV"))<<std::endl;
+        std::cout<<"  Discovered venv: "<<_interp->getDiscoveredVenvPath()<<std::endl;
+        auto paths = _interp->getSystemPath();
+        std::cout<<"  System paths:"<<std::endl;
+        for(std::string& path: std::get<1>(paths)){
+          std::cout<<"    "<<path<<std::endl;
+        }
+        #endif
+        std::cout<<std::endl;
+        exit(0); // Unsure if this path should have a non-zero exit code?
+    } else if( argc < 6) {
         std::cout << "Missing required args:" << std::endl;
         std::cout << argv[0] << " <catchment_data_path> <catchment subset ids> <nexus_data_path> <nexus subset ids>"
                   << " <realization_config_path>" << std::endl;
         if(argc > 3) {
             std::cout << std::endl << "Note:" << std::endl
                       << "Arguments for <catchment subset ids> and <nexus subset ids> must be given." << std::endl
-                      << "Use empty string (\"\") as explicit argument when no subset is needed." << std::endl;
+                      << "Use \"all\" as explicit argument when no subset is needed." << std::endl;
         }
+
         exit(-1);
     }
     else {
@@ -104,11 +251,17 @@ int main(int argc, char *argv[]) {
         nexusDataFile = argv[3];
         REALIZATION_CONFIG_PATH = argv[5];
 
-        #ifdef NGEN_MPI_ACTIVE
+        #if NGEN_WITH_MPI
+
+        // Initalize MPI
+        MPI_Init(NULL, NULL);
+        MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &mpi_num_procs);
+
         if (argc >= 7) {
             PARTITION_PATH = argv[6];
         }
-        else {
+        else if (mpi_num_procs > 1) {
             std::cout << "Missing required argument for partition file path." << std::endl;
             exit(-1);
         }
@@ -117,24 +270,18 @@ int main(int argc, char *argv[]) {
             if (strcmp(argv[7], MPI_HF_SUB_CLI_FLAG) == 0) {
                 is_subdivided_hydrofabric_wanted = true;
             }
-            else {
+            else if (mpi_num_procs > 1) {
                 std::cout << "Unexpected arg '" << argv[7] << "'; try " << MPI_HF_SUB_CLI_FLAG << std::endl;
                 exit(-1);
             }
         }
-
-        // Initalize MPI
-        MPI_Init(NULL, NULL);
-        MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-        MPI_Comm_size(MPI_COMM_WORLD, &mpi_num_procs);
-        
-        #endif // NGEN_MPI_ACTIVE
+        #endif // NGEN_WITH_MPI
 
         #ifdef WRITE_PID_FILE_FOR_GDB_SERVER
         std::string pid_file_name = "./.ngen_pid";
-        #ifdef NGEN_MPI_ACTIVE
+        #if NGEN_WITH_MPI
         pid_file_name += "." + std::to_string(mpi_rank);
-        #endif // NGEN_MPI_ACTIVE
+        #endif // NGEN_WITH_MPI
         ofstream outfile;
         outfile.open(pid_file_name, ios::out | ios::trunc );
         outfile << getpid();
@@ -150,7 +297,7 @@ int main(int argc, char *argv[]) {
                 !utils::FileChecker::file_is_readable(nexusDataFile, "Nexus data") ||
                 !utils::FileChecker::file_is_readable(REALIZATION_CONFIG_PATH, "Realization config");
 
-        #ifdef NGEN_MPI_ACTIVE
+        #if NGEN_WITH_MPI
         if (!PARTITION_PATH.empty()) {
             error = error || !utils::FileChecker::file_is_readable(PARTITION_PATH, "Partition config");
         }
@@ -171,7 +318,7 @@ int main(int argc, char *argv[]) {
                 error = true;
             }
         }
-        #endif // NGEN_MPI_ACTIVE
+        #endif // NGEN_WITH_MPI
 
         if(error) exit(-1);
 
@@ -191,72 +338,98 @@ int main(int argc, char *argv[]) {
     //Read the collection of nexus
     std::cout << "Building Nexus collection" << std::endl;
     
-    #ifdef NGEN_MPI_ACTIVE
-    Partitions_Parser partition_parser(PARTITION_PATH);
-    // TODO: add something here to make sure this step worked for every rank, and maybe to checksum the file
-    partition_parser.parse_partition_file();
-    
-    std::vector<PartitionData> &partitions = partition_parser.partition_ranks;
-    PartitionData &local_data = partitions[mpi_rank];
-    if (!nexus_subset_ids.empty()) {
-        std::cerr << "Warning: CLI provided nexus subset will be ignored when using partition config";
+    #if NGEN_WITH_MPI
+    PartitionData local_data;
+    if (mpi_num_procs > 1) {
+        Partitions_Parser partition_parser(PARTITION_PATH);
+        // TODO: add something here to make sure this step worked for every rank, and maybe to checksum the file
+        partition_parser.parse_partition_file();
+
+        std::vector<PartitionData> &partitions = partition_parser.partition_ranks;
+        local_data = std::move(partitions[mpi_rank]);
+        if (!nexus_subset_ids.empty()) {
+            std::cerr << "Warning: CLI provided nexus subset will be ignored when using partition config";
+        }
+        if (!catchment_subset_ids.empty()) {
+            std::cerr << "Warning: CLI provided catchment subset will be ignored when using partition config";
+        }
+        nexus_subset_ids = std::vector<std::string>(local_data.nexus_ids.begin(), local_data.nexus_ids.end());
+        catchment_subset_ids = std::vector<std::string>(local_data.catchment_ids.begin(), local_data.catchment_ids.end());
     }
-    if (!catchment_subset_ids.empty()) {
-        std::cerr << "Warning: CLI provided catchment subset will be ignored when using partition config";
-    }
-    nexus_subset_ids = std::vector<std::string>(local_data.nexus_ids.begin(), local_data.nexus_ids.end());
-    catchment_subset_ids = std::vector<std::string>(local_data.catchment_ids.begin(), local_data.catchment_ids.end());
-    #endif // NGEN_MPI_ACTIVE
+    #endif // NGEN_WITH_MPI
 
     // TODO: Instead of iterating through a collection of FeatureBase objects mapping to nexi, we instead want to iterate through HY_HydroLocation objects
-    geojson::GeoJSON nexus_collection = geojson::read(nexusDataFile, nexus_subset_ids);
+    geojson::GeoJSON nexus_collection;
+    if (boost::algorithm::ends_with(nexusDataFile, "gpkg")) {
+      #if NGEN_WITH_SQLITE3
+      nexus_collection = ngen::geopackage::read(nexusDataFile, "nexus", nexus_subset_ids);
+      #else
+      throw std::runtime_error("SQLite3 support required to read GeoPackage files.");
+      #endif
+    } else {
+      nexus_collection = geojson::read(nexusDataFile, nexus_subset_ids);
+    }
     std::cout << "Building Catchment collection" << std::endl;
 
     // TODO: Instead of iterating through a collection of FeatureBase objects mapping to catchments, we instead want to iterate through HY_Catchment objects
-    geojson::GeoJSON catchment_collection = geojson::read(catchmentDataFile, catchment_subset_ids);
+    geojson::GeoJSON catchment_collection;
+    if (boost::algorithm::ends_with(catchmentDataFile, "gpkg")) {
+      #if NGEN_WITH_SQLITE3
+      catchment_collection = ngen::geopackage::read(catchmentDataFile, "divides", catchment_subset_ids);
+      #else
+      throw std::runtime_error("SQLite3 support required to read GeoPackage files.");
+      #endif
+    } else {
+      catchment_collection = geojson::read(catchmentDataFile, catchment_subset_ids);
+    }
     
     for(auto& feature: *catchment_collection)
     {
-        //feature->set_id(feature->get_property("ID").as_string());
+        //feature->set_id(feature->get_property("id").as_string());
         nexus_collection->add_feature(feature);
-        //std::cout<<"Catchment "<<feature->get_id()<<" -> Nexus "<<feature->get_property("toID").as_string()<<std::endl;
+        //std::cout<<"Catchment "<<feature->get_id()<<" -> Nexus "<<feature->get_property("toid").as_string()<<std::endl;
     }
-
+    //Update the feature ids for the combined collection, using the alternative property 'id'
+    //to map features to their primary id as well as the alternative property
+    nexus_collection->update_ids("id");
+    std::cout<<"Initializing formulations" << std::endl;
     std::shared_ptr<realization::Formulation_Manager> manager = std::make_shared<realization::Formulation_Manager>(REALIZATION_CONFIG_PATH);
     manager->read(catchment_collection, utils::getStdOut());
 
     //TODO refactor manager->read so certain configs can be queried before the entire
     //realization collection is created
-    #ifdef NGEN_ROUTING_ACTIVE
+    #if NGEN_WITH_ROUTING
     std::unique_ptr<routing_py_adapter::Routing_Py_Adapter> router;
-    #ifdef NGEN_MPI_ACTIVE
-    //If rank == 0, do routing
     if( mpi_rank == 0 )
     { // Run t-route from single process
-    #endif //NGEN_MPI_ACTIVE
     if(manager->get_using_routing()) {
       std::cout<<"Using Routing"<<std::endl;
       std::string t_route_config_file_with_path = manager->get_t_route_config_file_with_path();
-      router = make_unique<routing_py_adapter::Routing_Py_Adapter>(t_route_config_file_with_path);
+      router = std::make_unique<routing_py_adapter::Routing_Py_Adapter>(t_route_config_file_with_path);
     }
     else {
       std::cout<<"Not Using Routing"<<std::endl;
     }
-    #ifdef NGEN_MPI_ACTIVE
     }
-    #endif //NGEN_MPI_ACTIVE
-    #endif //NGEN_ROUTING_ACTIVE
-
+    #endif //NGEN_WITH_ROUTING
+    std::cout<<"Building Feature Index" <<std::endl;;
     std::string link_key = "toid";
-    #ifdef NGEN_MPI_ACTIVE
     nexus_collection->link_features_from_property(nullptr, &link_key);
+
+    #if NGEN_WITH_MPI
+    //mpirun with one processor without partition file
+    if (mpi_num_procs == 1) {
+        Partition_One partition_one;
+        partition_one.generate_partition(catchment_collection);
+        local_data = std::move(partition_one.partition_data);
+    }
     hy_features::HY_Features_MPI features = hy_features::HY_Features_MPI(local_data, nexus_collection, manager, mpi_rank, mpi_num_procs);
     #else
-    hy_features::HY_Features features = hy_features::HY_Features(catchment_collection, &link_key, manager);
+    hy_features::HY_Features features = hy_features::HY_Features(nexus_collection, manager);
     #endif
 
-    //validate dendridic connections
-    features.validate_dendridic();
+    //validate dendritic connections
+    features.validate_dendritic();
     //TODO don't really need catchment_collection once catchments are added to nexus collection
     //Still using  catchments for geometry at the moment, fix this later
     //catchment_collection.reset();
@@ -264,100 +437,145 @@ int main(int argc, char *argv[]) {
 
     //Still hacking nexus output for the moment
     for(const auto& id : features.nexuses()) {
-        #ifdef NGEN_MPI_ACTIVE
-        if (!features.is_remote_sender_nexus(id)) {
-          nexus_outfiles[id].open("./"+id+"_output.csv", std::ios::trunc);
+        #if NGEN_WITH_MPI
+        if (mpi_num_procs > 1) {
+            if (!features.is_remote_sender_nexus(id)) {
+                nexus_outfiles[id].open(manager->get_output_root() + id + "_output.csv", std::ios::trunc);
+            }
+        } else {
+          nexus_outfiles[id].open(manager->get_output_root() + id + "_output.csv", std::ios::trunc);
         }
         #else
-        nexus_outfiles[id].open("./"+id+"_output.csv", std::ios::trunc);
+        nexus_outfiles[id].open(manager->get_output_root() + id + "_output.csv", std::ios::trunc);
         #endif
     }
 
     std::cout<<"Running Models"<<std::endl;
 
-    std::shared_ptr<pdm03_struct> pdm_et_data = std::make_shared<pdm03_struct>(get_et_params());
+    // check the time loops for the existing layers
+    ngen::LayerDataStorage& layer_meta_data = manager->get_layer_metadata();
+
+    // get the keys for the existing layers
+    std::vector<int>& keys = layer_meta_data.get_keys();
+
+    //FIXME refactor the layer building to avoid this mess
+    std::vector<double> time_steps;
+    for(int i = 0; i < keys.size(); ++i)
+    {
+        auto& m_data = layer_meta_data.get_layer(keys[i]);
+        double c_value = UnitsHelper::get_converted_value(m_data.time_step_units,m_data.time_step,"s");
+        time_steps.push_back(c_value);
+    }
+
+    // now create the layer objects
+
+    // first make sure that the layer are listed in decreasing order
+    boost::range::sort(keys, std::greater<int>());
+
+    std::vector<std::shared_ptr<ngen::Layer> > layers;
+    layers.resize(keys.size());
+
+    for(long i = 0; i < keys.size(); ++i)
+    {
+      auto& desc = layer_meta_data.get_layer(keys[i]);
+      std::vector<std::string> cat_ids;
+
+      // make a new simulation time object with a different output interval
+      Simulation_Time sim_time(*manager->Simulation_Time_Object, time_steps[i]);
+      if( manager->has_domain_formulation(keys[i])){
+        //create a domain wide layer
+        auto formulation = manager->get_domain_formulation(keys[i]);
+        layers[i] = std::make_shared<ngen::DomainLayer>(desc, sim_time, features, 0, formulation);
+      }
+      else{
+        for ( std::string id : features.catchments(keys[i]) ) { cat_ids.push_back(id); }
+        if (keys[i] != 0 )
+        {
+          layers[i] = std::make_shared<ngen::Layer>(desc, cat_ids, sim_time, features, catchment_collection, 0);
+        }
+        else
+        {
+          layers[i] = std::make_shared<ngen::SurfaceLayer>(desc, cat_ids, sim_time, features, catchment_collection, 0, nexus_subset_ids, nexus_outfiles);
+        }
+      }
+
+    }
+
+    auto time_done_init = std::chrono::steady_clock::now();
+    std::chrono::duration<double> time_elapsed_init = time_done_init - time_start;
 
     //Now loop some time, iterate catchments, do stuff for total number of output times
-    for(int output_time_index = 0; output_time_index < manager->Simulation_Time_Object->get_total_output_times(); output_time_index++) {
-      //std::cout<<"Output Time Index: "<<output_time_index<<std::endl;
-      if(output_time_index%100 == 0) std::cout<<"Running timestep "<<output_time_index<<std::endl;
-      std::string current_timestamp = manager->Simulation_Time_Object->get_timestamp(output_time_index);
-      for(const auto& id : features.catchments()) {
-        //std::cout<<"Running cat "<<id<<std::endl;
-        auto r = features.catchment_at(id);
-        //TODO redesign to avoid this cast
-        auto r_c = dynamic_pointer_cast<realization::Catchment_Formulation>(r);
-        r_c->set_et_params(pdm_et_data);
-        double response = r_c->get_response(output_time_index, 3600.0);
-        std::string output = std::to_string(output_time_index)+","+current_timestamp+","+
-                             r_c->get_output_line_for_timestep(output_time_index)+"\n";
-        r_c->write_output(output);
-        //TODO put this somewhere else.  For now, just trying to ensure we get m^3/s into nexus output
-        try{
-          response *= (catchment_collection->get_feature(id)->get_property("areasqkm").as_real_number() * 1000000);
-        }catch(std::invalid_argument &e)
+    auto num_times = manager->Simulation_Time_Object->get_total_output_times();
+    for( int count = 0; count < num_times; count++) 
+    {
+      // The Inner loop will advance all layers unless doing so will break one of two constraints
+      // 1) A layer may not proceed ahead of the master simulation object's current time
+      // 2) A layer may not proceed ahead of any layer that is computed before it
+      // The do while loop ensures that all layers are tested at least once while allowing 
+      // layers with small time steps to be updated more than once
+      // If a layer with a large time step is after a layer with a small time step the
+      // layer with the large time step will wait for multiple timesteps from the preceeding
+      // layer.
+      
+      // this is the time that layers are trying to reach (or get as close as possible)
+      auto next_time = manager->Simulation_Time_Object->next_timestep_epoch_time();
+
+      // this is the time that the layer above the current layer is at
+      auto prev_layer_time = next_time;
+
+      // this is the time that the least advanced layer is at
+      auto layer_min_next_time = next_time;
+      do
+      {
+        for ( auto& layer : layers ) 
         {
-          response *= (catchment_collection->get_feature(id)->get_property("area_sqkm").as_real_number() * 1000000);
-        }
-        //TODO put this somewhere else as well, for now, an implicit assumption is that a modules get_response returns
-        //m/timestep
-        //since we are operating on a 1 hour (3600s) dt, we need to scale the output appropriately
-        //so no response is m^2/hr...m^2/hr * 1hr/3600s = m^3/hr
-        response /= 3600.0;
-        //update the nexus with this flow
-        for(auto& nexus : features.destination_nexuses(id)) {
-          //TODO in a DENDRIDIC network, only one destination nexus per catchment
-          //If there is more than one, some form of catchment partitioning will be required.
-          //for now, only contribute to the first one in the list
-          nexus->add_upstream_flow(response, id, output_time_index);
-	        break;
-        }
-      } //done catchments
-      //At this point, could make an internal routing pass, extracting flows from nexuses and routing
-      //across the flowpath to the next nexus.
-      //Once everything is updated for this timestep, dump the nexus output
-      for(const auto& id : features.nexuses()) {
-  #ifdef NGEN_MPI_ACTIVE
-        if (!features.is_remote_sender_nexus(id)) { //Ensures only one side of the dual sided remote nexus actually doing this...
-  #endif
-          //Get the correct "requesting" id for downstream_flow
-	        const auto& nexus = features.nexus_at(id);
-          const auto& cat_ids = nexus->get_receiving_catchments();
-          std::string cat_id;
-          if( cat_ids.size() > 0 ) {
-            //Assumes dendridic, e.g. only a single downstream...it will consume 100%  of the available flow
-            cat_id = cat_ids[0];
-          }
-          else {
-            //This is a terminal node, SHOULDN'T be remote, so ID shouldn't matter too much
-            cat_id = "terminal";
-          }
-          double contribution_at_t = features.nexus_at(id)->get_downstream_flow(cat_id, output_time_index, 100.0);
-          if(nexus_outfiles[id].is_open()) {
-            nexus_outfiles[id] << output_time_index << ", " << current_timestamp << ", " << contribution_at_t << std::endl;
-          }
-  #ifdef NGEN_MPI_ACTIVE
-        }
-  #endif
-        //std::cout<<"\tNexus "<<id<<" has "<<contribution_at_t<<" m^3/s"<<std::endl;
+          auto layer_next_time = layer->next_timestep_epoch_time();
 
-        //Note: Use below if developing in-memory transfer of nexus flows to routing
-        //If using below, then another single time vector would be needed to hold the timestamp
-        //nexus_flows[id].push_back(contribution_at_t); 
-      } //done nexuses
+          // only advance if you would not pass the master next time and the previous layer next time
+          if ( layer_next_time <= next_time && layer_next_time <=  prev_layer_time)
+          {
+            if(count%100==0) std::cout<<"Updating layer: "<<layer->get_name()<<"\n";
+            layer->update_models(); //assume update_models() calls time->advance_timestep()
+            prev_layer_time = layer_next_time;
+          }
+          else
+          {
+            layer_min_next_time = prev_layer_time = layer->current_timestep_epoch_time(); 
+          }
+
+          if ( layer_min_next_time > layer_next_time)
+          {
+            layer_min_next_time = layer_next_time;
+          }
+        } //done layers
+      } while( layer_min_next_time < next_time );  // rerun the loop until the last layer would pass the master next time
+
+      if (count + 1 < num_times)
+      {
+        manager->Simulation_Time_Object->advance_timestep();
+      }
+
     } //done time
-    std::cout<<"Finished "<<manager->Simulation_Time_Object->get_total_output_times()<<" timesteps."<<std::endl;
 
-
-  #ifdef NGEN_ROUTING_ACTIVE
-
-  #ifdef NGEN_MPI_ACTIVE
-    //Syncronization here. MPI barrier. If rank == 0, do routing
+#if NGEN_WITH_MPI
     MPI_Barrier(MPI_COMM_WORLD);
-    MPI_Finalize();
-    if( mpi_rank == 0 )
+#endif
+
+    if (mpi_rank == 0)
+    {
+        std::cout << "Finished " << manager->Simulation_Time_Object->get_total_output_times() << " timesteps." << std::endl;
+    }
+
+    auto time_done_simulation = std::chrono::steady_clock::now();
+    std::chrono::duration<double> time_elapsed_simulation = time_done_simulation - time_done_init;
+
+#if NGEN_WITH_MPI
+    MPI_Barrier(MPI_COMM_WORLD);
+#endif
+
+#if NGEN_WITH_ROUTING
+    if (mpi_rank == 0)
     { // Run t-route from single process
-  #endif //NGEN_MPI_ACTIVE
         if(manager->get_using_routing()) {
           //Note: Currently, delta_time is set in the t-route yaml configuration file, and the
           //number_of_timesteps is determined from the total number of nexus outputs in t-route.
@@ -369,13 +587,28 @@ int main(int argc, char *argv[]) {
           
           router->route(number_of_timesteps, delta_time); 
         }
- #ifdef NGEN_MPI_ACTIVE
     }
- #endif //NGEN_MPI_ACTIVE
- #else
- #ifdef NGEN_MPI_ACTIVE
+#endif
+
+    auto time_done_routing = std::chrono::steady_clock::now();
+    std::chrono::duration<double> time_elapsed_routing = time_done_routing - time_done_simulation;
+
+    if (mpi_rank == 0)
+    {
+        std::cout << "NGen top-level timings:"
+                  << "\n\tNGen::init: " << time_elapsed_init.count()
+                  << "\n\tNGen::simulation: " << time_elapsed_simulation.count()
+#if NGEN_WITH_ROUTING
+                  << "\n\tNGen::routing: " << time_elapsed_routing.count()
+#endif
+                  << std::endl;
+    }
+
+  manager->finalize();
+
+#if NGEN_WITH_MPI
     MPI_Finalize();
- #endif //NGEN_MPI_ACTIVE
- #endif // NGEN_ROUTING_ACTIVE
+#endif
+
     return 0;
 }

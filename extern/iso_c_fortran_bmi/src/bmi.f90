@@ -35,7 +35,7 @@ module bmif_2_0_iso
       procedure(bmif_get_input_var_names), deferred :: get_input_var_names
       procedure(bmif_get_output_var_names), deferred :: get_output_var_names
 
-!       ! Variable information
+      ! Variable information
       procedure(bmif_get_var_grid), deferred :: get_var_grid
       procedure(bmif_get_var_type), deferred :: get_var_type
       procedure(bmif_get_var_units), deferred :: get_var_units
@@ -43,54 +43,54 @@ module bmif_2_0_iso
       procedure(bmif_get_var_nbytes), deferred :: get_var_nbytes
       procedure(bmif_get_var_location), deferred :: get_var_location
 
-!       ! Time information
+      ! Time information
       procedure(bmif_get_current_time), deferred :: get_current_time
       procedure(bmif_get_start_time), deferred :: get_start_time
       procedure(bmif_get_end_time), deferred :: get_end_time
        procedure(bmif_get_time_units), deferred :: get_time_units
       procedure(bmif_get_time_step), deferred :: get_time_step
-! !
-!       ! Getters, by type
+
+      ! Getters, by type
       procedure(bmif_get_value_int), deferred :: get_value_int
       procedure(bmif_get_value_float), deferred :: get_value_float
       procedure(bmif_get_value_double), deferred :: get_value_double
-! !       procedure(bmif_get_value_ptr_int), deferred :: get_value_ptr_int
-! !       procedure(bmif_get_value_ptr_float), deferred :: get_value_ptr_float
-! !       procedure(bmif_get_value_ptr_double), deferred :: get_value_ptr_double
-! !       procedure(bmif_get_value_at_indices_int), deferred :: &
-! !            get_value_at_indices_int
-! !       procedure(bmif_get_value_at_indices_float), deferred :: &
-! !            get_value_at_indices_float
-! !       procedure(bmif_get_value_at_indices_double), deferred :: &
-! !            get_value_at_indices_double
-! !
-! !       ! Setters, by type
+      procedure(bmif_get_value_ptr_int), deferred :: get_value_ptr_int
+      procedure(bmif_get_value_ptr_float), deferred :: get_value_ptr_float
+      procedure(bmif_get_value_ptr_double), deferred :: get_value_ptr_double
+      procedure(bmif_get_value_at_indices_int), deferred :: &
+           get_value_at_indices_int
+      procedure(bmif_get_value_at_indices_float), deferred :: &
+           get_value_at_indices_float
+      procedure(bmif_get_value_at_indices_double), deferred :: &
+           get_value_at_indices_double
+
+      ! Setters, by type
       procedure(bmif_set_value_int), deferred :: set_value_int
       procedure(bmif_set_value_float), deferred :: set_value_float
       procedure(bmif_set_value_double), deferred :: set_value_double
-! !       procedure(bmif_set_value_at_indices_int), deferred :: &
-! !            set_value_at_indices_int
-! !       procedure(bmif_set_value_at_indices_float), deferred :: &
-! !            set_value_at_indices_float
-! !       procedure(bmif_set_value_at_indices_double), deferred :: &
-! !            set_value_at_indices_double
+      procedure(bmif_set_value_at_indices_int), deferred :: &
+           set_value_at_indices_int
+      procedure(bmif_set_value_at_indices_float), deferred :: &
+           set_value_at_indices_float
+      procedure(bmif_set_value_at_indices_double), deferred :: &
+           set_value_at_indices_double
 
-!       ! Grid information
+      ! Grid information
       procedure(bmif_get_grid_rank), deferred :: get_grid_rank
       procedure(bmif_get_grid_size), deferred :: get_grid_size
       procedure(bmif_get_grid_type), deferred :: get_grid_type
 
-!       ! Uniform rectilinear
+      ! Uniform rectilinear
       procedure(bmif_get_grid_shape), deferred :: get_grid_shape
       procedure(bmif_get_grid_spacing), deferred :: get_grid_spacing
       procedure(bmif_get_grid_origin), deferred :: get_grid_origin
 
-!       ! Non-uniform rectilinear, curvilinear
+      ! Non-uniform rectilinear, curvilinear
       procedure(bmif_get_grid_x), deferred :: get_grid_x
       procedure(bmif_get_grid_y), deferred :: get_grid_y
       procedure(bmif_get_grid_z), deferred :: get_grid_z
 
-!       ! Unstructured
+      ! Unstructured
       procedure(bmif_get_grid_node_count), deferred :: get_grid_node_count
       procedure(bmif_get_grid_edge_count), deferred :: get_grid_edge_count
       procedure(bmif_get_grid_face_count), deferred :: get_grid_face_count
@@ -296,65 +296,65 @@ module bmif_2_0_iso
       integer :: bmi_status
     end function bmif_get_value_double
 
-! !     ! Get a reference to the given integer variable.
-! !     function bmif_get_value_ptr_int(this, name, dest_ptr) result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(in) :: this
-! !       character(len=*), intent(in) :: name
-! !       integer, pointer, intent(inout) :: dest_ptr(:)
-! !       integer :: bmi_status
-! !     end function bmif_get_value_ptr_int
-! !
-! !     ! Get a reference to the given real variable.
-! !     function bmif_get_value_ptr_float(this, name, dest_ptr) result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(in) :: this
-! !       character(len=*), intent(in) :: name
-! !       real, pointer, intent(inout) :: dest_ptr(:)
-! !       integer :: bmi_status
-! !     end function bmif_get_value_ptr_float
-! !
-! !     ! Get a reference to the given double variable.
-! !     function bmif_get_value_ptr_double(this, name, dest_ptr) result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(in) :: this
-! !       character(len=*), intent(in) :: name
-! !       double precision, pointer, intent(inout) :: dest_ptr(:)
-! !       integer :: bmi_status
-! !     end function bmif_get_value_ptr_double
-! !
-! !     ! Get integer values at particular (one-dimensional) indices.
-! !     function bmif_get_value_at_indices_int(this, name, dest, inds) &
-! !       result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(in) :: this
-! !       character(len=*), intent(in) :: name
-! !       integer, intent(inout) :: dest(:)
-! !       integer, intent(in) :: inds(:)
-! !       integer :: bmi_status
-! !     end function bmif_get_value_at_indices_int
-! !
-! !     ! Get real values at particular (one-dimensional) indices.
-! !     function bmif_get_value_at_indices_float(this, name, dest, inds) &
-! !       result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(in) :: this
-! !       character(len=*), intent(in) :: name
-! !       real, intent(inout) :: dest(:)
-! !       integer, intent(in) :: inds(:)
-! !       integer :: bmi_status
-! !     end function bmif_get_value_at_indices_float
-! !
-! !     ! Get double values at particular (one-dimensional) indices.
-! !     function bmif_get_value_at_indices_double(this, name, dest, inds) &
-! !       result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(in) :: this
-! !       character(len=*), intent(in) :: name
-! !       double precision, intent(inout) :: dest(:)
-! !       integer, intent(in) :: inds(:)
-! !       integer :: bmi_status
-! !     end function bmif_get_value_at_indices_double
+    ! Get a reference to the given integer variable.
+    function bmif_get_value_ptr_int(this, name, dest_ptr) result(bmi_status)
+      import :: bmi
+      class(bmi), intent(in) :: this
+      character(len=*), intent(in) :: name
+      integer, pointer, intent(inout) :: dest_ptr(:)
+      integer :: bmi_status
+    end function bmif_get_value_ptr_int
+
+    ! Get a reference to the given real variable.
+    function bmif_get_value_ptr_float(this, name, dest_ptr) result(bmi_status)
+      import :: bmi
+      class(bmi), intent(in) :: this
+      character(len=*), intent(in) :: name
+      real, pointer, intent(inout) :: dest_ptr(:)
+      integer :: bmi_status
+    end function bmif_get_value_ptr_float
+
+    ! Get a reference to the given double variable.
+    function bmif_get_value_ptr_double(this, name, dest_ptr) result(bmi_status)
+      import :: bmi
+      class(bmi), intent(in) :: this
+      character(len=*), intent(in) :: name
+      double precision, pointer, intent(inout) :: dest_ptr(:)
+      integer :: bmi_status
+    end function bmif_get_value_ptr_double
+
+    ! Get integer values at particular (one-dimensional) indices.
+    function bmif_get_value_at_indices_int(this, name, dest, inds) &
+      result(bmi_status)
+      import :: bmi
+      class(bmi), intent(in) :: this
+      character(len=*), intent(in) :: name
+      integer, intent(inout) :: dest(:)
+      integer, intent(in) :: inds(:)
+      integer :: bmi_status
+    end function bmif_get_value_at_indices_int
+
+    ! Get real values at particular (one-dimensional) indices.
+    function bmif_get_value_at_indices_float(this, name, dest, inds) &
+      result(bmi_status)
+      import :: bmi
+      class(bmi), intent(in) :: this
+      character(len=*), intent(in) :: name
+      real, intent(inout) :: dest(:)
+      integer, intent(in) :: inds(:)
+      integer :: bmi_status
+    end function bmif_get_value_at_indices_float
+
+    ! Get double values at particular (one-dimensional) indices.
+    function bmif_get_value_at_indices_double(this, name, dest, inds) &
+      result(bmi_status)
+      import :: bmi
+      class(bmi), intent(in) :: this
+      character(len=*), intent(in) :: name
+      double precision, intent(inout) :: dest(:)
+      integer, intent(in) :: inds(:)
+      integer :: bmi_status
+    end function bmif_get_value_at_indices_double
 
     ! Set new values for an integer model variable.
     function bmif_set_value_int(this, name, src) result(bmi_status)
@@ -383,39 +383,39 @@ module bmif_2_0_iso
       integer :: bmi_status
     end function bmif_set_value_double
 
-! !     ! Set integer values at particular (one-dimensional) indices.
-! !     function bmif_set_value_at_indices_int(this, name, inds, src) &
-! !       result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(inout) :: this
-! !       character(len=*), intent(in) :: name
-! !       integer, intent(in) :: inds(:)
-! !       integer, intent(in) :: src(:)
-! !       integer :: bmi_status
-! !     end function bmif_set_value_at_indices_int
-! !
-! !     ! Set real values at particular (one-dimensional) indices.
-! !     function bmif_set_value_at_indices_float(this, name, inds, src) &
-! !       result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(inout) :: this
-! !       character(len=*), intent(in) :: name
-! !       integer, intent(in) :: inds(:)
-! !       real, intent(in) :: src(:)
-! !       integer :: bmi_status
-! !     end function bmif_set_value_at_indices_float
-! !
-! !     ! Set double values at particular (one-dimensional) indices.
-! !     function bmif_set_value_at_indices_double(this, name, inds, src) &
-! !       result(bmi_status)
-! !       import :: bmi
-! !       class(bmi), intent(inout) :: this
-! !       character(len=*), intent(in) :: name
-! !       integer, intent(in) :: inds(:)
-! !       double precision, intent(in) :: src(:)
-! !       integer :: bmi_status
-! !     end function bmif_set_value_at_indices_double
-! !
+    ! Set integer values at particular (one-dimensional) indices.
+    function bmif_set_value_at_indices_int(this, name, inds, src) &
+      result(bmi_status)
+      import :: bmi
+      class(bmi), intent(inout) :: this
+      character(len=*), intent(in) :: name
+      integer, intent(in) :: inds(:)
+      integer, intent(in) :: src(:)
+      integer :: bmi_status
+    end function bmif_set_value_at_indices_int
+
+    ! Set real values at particular (one-dimensional) indices.
+    function bmif_set_value_at_indices_float(this, name, inds, src) &
+      result(bmi_status)
+      import :: bmi
+      class(bmi), intent(inout) :: this
+      character(len=*), intent(in) :: name
+      integer, intent(in) :: inds(:)
+      real, intent(in) :: src(:)
+      integer :: bmi_status
+    end function bmif_set_value_at_indices_float
+
+    ! Set double values at particular (one-dimensional) indices.
+    function bmif_set_value_at_indices_double(this, name, inds, src) &
+      result(bmi_status)
+      import :: bmi
+      class(bmi), intent(inout) :: this
+      character(len=*), intent(in) :: name
+      integer, intent(in) :: inds(:)
+      double precision, intent(in) :: src(:)
+      integer :: bmi_status
+    end function bmif_set_value_at_indices_double
+
     ! Get number of dimensions of the computational grid.
     function bmif_get_grid_rank(this, grid, rank) result(bmi_status)
       import :: bmi

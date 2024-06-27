@@ -12,13 +12,13 @@ using namespace geojson;
 long JSONProperty::as_natural_number() const {
     // Return a natural number if this IS a natural number
     if (type == PropertyType::Natural) {
-        return natural_number;
+        return boost::get<long>(data);
     }
 
     // Throw an exception since this can't be considered a natural number
     std::string message = key + " is a " + get_propertytype_name(get_type()) + " and cannot be converted into a natural number.";
     throw std::runtime_error(message);
-};
+}
 
 /**
  * Get the type of the property (Natural, Real, String, etc)
@@ -27,38 +27,38 @@ long JSONProperty::as_natural_number() const {
  */
 PropertyType JSONProperty::get_type() const {
     return type;
-};
+}
 
 
 double JSONProperty::as_real_number() const {
     if (type == PropertyType::Real) {
-        return real_number;
+        return boost::get<double>(data);
     }
     else if (type == PropertyType::Natural) {
-        return double(natural_number);
+        return double(boost::get<long>(data)); //TODO consider a visitor?
     }
 
     std::string message = key + " is a " + get_propertytype_name(get_type()) + " and cannot be converted into a real number.";
     throw std::runtime_error(message);
-};
+}
 
 bool JSONProperty::as_boolean() const {
     if (type == PropertyType::Boolean) {
-        return boolean;
+        return boost::get<bool>(data);
     }
 
     std::string message = key + " is a " + get_propertytype_name(get_type()) + " and cannot be converted into a boolean.";
     throw std::runtime_error(message);
-};
+}
 
 std::vector<JSONProperty> JSONProperty::as_list() const {
-        std::vector<JSONProperty> copy;
+    std::vector<JSONProperty> copy;
 
     if (type == PropertyType::List) {
-        for (JSONProperty value : value_list) {
-            copy.push_back(JSONProperty(value));
-        }
-        return copy;
+       for( auto & val : value_list){
+            copy.push_back(JSONProperty(val));
+       }
+       return copy;
     }
     else if (type != PropertyType::Object) {
         copy.push_back(JSONProperty(*this));
@@ -72,49 +72,37 @@ std::vector<JSONProperty> JSONProperty::as_list() const {
 std::vector<long> JSONProperty::as_natural_vector() const {
     std::vector<long> values;
 
-    for (JSONProperty value : this->as_list()) {
-        values.push_back(value.as_natural_number());
-    }
-
+    as_vector(values);
     return values;
 }
 
 std::vector<double> JSONProperty::as_real_vector() const {
     std::vector<double> values;
 
-    for (JSONProperty value : this->as_list()) {
-        values.push_back(value.as_real_number());
-    }
-
+    as_vector(values);
     return values;
 }
 
 std::vector<std::string> JSONProperty::as_string_vector() const {
     std::vector<std::string> values;
 
-    for (JSONProperty value : this->as_list()) {
-        values.push_back(value.as_string());
-    }
-
+    as_vector(values);
     return values;
 }
 
 std::vector<bool> JSONProperty::as_boolean_vector() const {
     std::vector<bool> values;
 
-    for (JSONProperty value : this->as_list()) {
-        values.push_back(value.as_boolean());
-    }
-
+    as_vector(values);
     return values;
 }
 
 std::string JSONProperty::as_string() const {
     if (type == PropertyType::String) {
-        return string;
+        return boost::get<std::string>(data);
     }
     else if (type == PropertyType::Boolean) {
-        if (boolean) {
+        if (boost::get<bool>(data)) {
             return "true";
         }
         else {
@@ -122,18 +110,17 @@ std::string JSONProperty::as_string() const {
         }
     }
     else if (type == PropertyType::Natural) {
-        return std::to_string(natural_number);
+        return std::to_string(boost::get<long>(data));
     }
     else if(type == PropertyType::Real) {
-        return std::to_string(real_number);
+        return std::to_string(boost::get<double>(data));
     }
     else if (type == PropertyType::List) {
         std::string list_description = "[";
+        for (int list_index = 0; list_index < value_list.size(); list_index++) {
+            list_description += value_list[list_index].as_string();
 
-        for (int list_index = 0; list_index < this->value_list.size(); list_index++) {
-            list_description += this->value_list[list_index].as_string();
-
-            if (list_index < this->value_list.size() - 1) {
+            if (list_index < value_list.size() - 1) {
                 list_description += ",";
             }
         }
@@ -144,7 +131,7 @@ std::string JSONProperty::as_string() const {
 
     std::string message = key + " is a " + get_propertytype_name(get_type()) + " and cannot be converted into a string.";
     throw std::runtime_error(message);
-};
+}
 
 JSONProperty JSONProperty::at(std::string key) const {
     if (type == PropertyType::Object) {
@@ -191,11 +178,4 @@ bool JSONProperty::has_key(std::string key) const {
 
 std::string JSONProperty::get_key() const {
     return key;
-}
-
-namespace geojson{
-    //Template specialization
-    template<> template<> void JSONProperty::PropertyVisitor<double>::operator ()<long>(const long& value){
-                        vec.push_back(static_cast<double>(value));
-        }
 }

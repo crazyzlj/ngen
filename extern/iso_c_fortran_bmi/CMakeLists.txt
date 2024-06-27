@@ -1,40 +1,37 @@
-cmake_minimum_required(VERSION 3.12)
-project(iso_c_fortran_bmi VERSION 1.0.0 DESCRIPTION "Shared library for ISO_C_BINDING Fortran Libraries implementing BMI")
-enable_language( Fortran )
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../cmake/")
-# Uncomment this and rebuild artifacts to enable debugging
-#set(CMAKE_BUILD_TYPE Debug)
-add_compile_options(
-  "-Wall"
-  "$<$<CONFIG:DEBUG>:-g;-fbacktrace;-fbounds-check>"
-)
+cmake_minimum_required(VERSION 3.12...3.26)
 
-set( CMAKE_Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fortran)
-#### Add variables for individual libraries that are used withing the *.pc.in files
-set(SOURCE_DIR src/)
-file( GLOB SOURCES ${SOURCE_DIR}*.f90)
+# NGen iso_c_fortran_bmi listfile shim
+#
+# Requires:
+# - NGEN_WITH_BMI_FORTRAN=ON
+#
+# Output Targets:
+# - `iso_c_bmi`
 
-if(WIN32)
-    add_library(iso_c_bmi ${SOURCES} )
-else()
-    add_library(iso_c_bmi SHARED ${SOURCES} )
-    #add_library(iso_c_bmi_a STATIC ${SOURCES} )
-endif()
+project(iso_c_fortran_bmi VERSION 1.0.0 LANGUAGES Fortran)
 
-target_compile_options(iso_c_bmi PUBLIC -cpp -ffree-line-length-none)
-#ensure relocatable object
-set_property(TARGET iso_c_bmi PROPERTY POSITION_INDEPENDENT_CODE ON)
+set(_source_dir "${CMAKE_CURRENT_LIST_DIR}")
 
-set_target_properties(iso_c_bmi PROPERTIES VERSION ${PROJECT_VERSION})
+add_library(iso_c_bmi SHARED)
+file(GLOB _ISO_C_BMI_OBJECTS CONFIGURE_DEPENDS "${_source_dir}/src/*.f90")
+get_target_property(_ISO_C_BMI_BINARY_DIR iso_c_bmi BINARY_DIR)
+set_target_properties(iso_c_bmi
+    PROPERTIES
+        Fortran_MODULE_DIRECTORY "${_ISO_C_BMI_BINARY_DIR}/mod")
+
+target_sources(iso_c_bmi PRIVATE ${_ISO_C_BMI_OBJECTS})
+target_compile_options(iso_c_bmi PRIVATE -cpp -ffree-line-length-none)
+target_include_directories(iso_c_bmi INTERFACE "${_ISO_C_BMI_BINARY_DIR}/mod")
+
+unset(_ISO_C_BMI_BINARY_DIR)
+unset(_ISO_C_BMI_OBJECTS)
 
 include(GNUInstallDirs)
-
 install(TARGETS iso_c_bmi
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-install(DIRECTORY ${CMAKE_Fortran_MODULE_DIRECTORY} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
+install(DIRECTORY ${CMAKE_Fortran_MODULE_DIRECTORY}
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 configure_file(iso_c_bmi.pc.in iso_c_bmi.pc @ONLY)
-
-install(FILES ${CMAKE_BINARY_DIR}/iso_c_bmi.pc DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pkgconfig)
+install(FILES ${CMAKE_BINARY_DIR}/iso_c_bmi.pc
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pkgconfig)
