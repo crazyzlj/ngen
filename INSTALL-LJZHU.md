@@ -23,8 +23,7 @@ Finally, we can run the NGEN model on example data:
 Note that, internal command (e.g., start with CMD in the last line of Dockerfile) 
 has hardcoded paths to repo-local data When running command manually from container use below:
 ```
-cd ..
-./gccbuild/ngen data/catchment_data.geojson "" data/nexus_data.geojson "" data/example_realization_config.json
+./ngen data/catchment_data.geojson "" data/nexus_data.geojson "" data/example_realization_config.json
 ```
 
 ## Building manually on my mac:
@@ -41,9 +40,7 @@ set BOOST_ROOT="/Users/ljzhu/Documents/src/boost_1_72_0"
 So, we can set `BOOST_ROOT` when building with cmake:
 `-DBOOST_ROOT=/Users/ljzhu/Documents/src/boost_1_72_0`
 
-**Build NGEN using cmake:**
-
-Using GCC:
+**Build and run NGEN using cmake:**
 
 + Use `-DBoost_NO_BOOST_CMAKE=ON` to avoid CMake to look for the 
 package configuration file called `BoostConfig.cmake` or `boost-config.cmake` 
@@ -59,16 +56,26 @@ and stores the result in `CACHE` entry `Boost_DIR`.
     /Users/ljzhu/Documents/code/ngen/.venv/bin/pip3 install numpy
     ```
 
-`
-mkdir gccbuild && cd gccbuild
-cmake -DCMAKE_C_COMPILER=/opt/homebrew/bin/gcc-12 -DCMAKE_CXX_COMPILER=/opt/homebrew/bin/g++-12 -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=/Users/ljzhu/Documents/src/boost_1_72_0 ..
-cmake --build . --target ngen
-`
+*** Using GCC:
 
-**Running the Model:**
-`
-./ngen data/catchment_data.geojson "" data/nexus_data.geojson "" data/example_realization_config.json
-`
+```
+mkdir buildgcc && cd buildgcc
+cmake -DCMAKE_C_COMPILER=/opt/homebrew/bin/gcc-12 -DCMAKE_CXX_COMPILER=/opt/homebrew/bin/g++-12 -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=/Users/ljzhu/Documents/src/boost_1_72_0 ..
+cmake --build . --target ngen -- -j 8
+# Running the Model
+cd ..
+./buildgcc/ngen data/catchment_data.geojson "" data/nexus_data.geojson "" data/example_realization_config.json
+```
+
+*** Using Clang:
+
+```
+mkdir buildclang && cd buildclang
+cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=/Users/ljzhu/Documents/src/boost_1_72_0 ..
+cmake --build . --target ngen -- -j 8
+cd ..
+./buildclang/ngen data/catchment_data.geojson "" data/nexus_data.geojson "" data/example_realization_config.json
+```
 
 ## Building manually on Linux:
 
